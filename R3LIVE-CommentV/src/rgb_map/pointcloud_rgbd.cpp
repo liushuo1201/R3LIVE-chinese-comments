@@ -207,24 +207,25 @@ Global_map::Global_map( int if_start_service )
 }
 Global_map::~Global_map(){};
 
+//更新全局地图中用于投影的地图点和图像id，last_pose_q
 void Global_map::service_refresh_pts_for_projection()
 {
     eigen_q last_pose_q = eigen_q::Identity();
     Common_tools::Timer                timer;
-    std::shared_ptr< Image_frame > img_for_projection = std::make_shared< Image_frame >();
+    std::shared_ptr< Image_frame > img_for_projection = std::make_shared< Image_frame >();//指向当前用于渲染的图像
     while (1)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         m_mutex_img_pose_for_projection->lock();
          
-        *img_for_projection = m_img_for_projection;
+        *img_for_projection = m_img_for_projection;//当前用于渲染的图像
         m_mutex_img_pose_for_projection->unlock();
-        if (img_for_projection->m_img_cols == 0 || img_for_projection->m_img_rows == 0)
+        if (img_for_projection->m_img_cols == 0 || img_for_projection->m_img_rows == 0) //图像为空跳过
         {
             continue;
         }
 
-        if (img_for_projection->m_frame_idx == m_updated_frame_index)
+        if (img_for_projection->m_frame_idx == m_updated_frame_index) //没有新的图像跳过（通过判断这个frame idx有没有更新）
         {
             continue;
         }
@@ -244,10 +245,11 @@ void Global_map::service_refresh_pts_for_projection()
             // m_rgb_pts_in_recent_visited_voxels = pts_in_recent_hitted_boxes;
             m_mutex_rgb_pts_in_recent_hitted_boxes->unlock();
         }
+        //将上个scan的点投影到当前相机坐标系下，去掉投影过程中的重复点和遮挡点
         selection_points_for_projection(img_for_projection, pts_rgb_vec_for_projection.get(), nullptr, 10.0, 1);
         m_mutex_pts_vec->lock();
-        m_pts_rgb_vec_for_projection = pts_rgb_vec_for_projection;
-        m_updated_frame_index = img_for_projection->m_frame_idx;
+        m_pts_rgb_vec_for_projection = pts_rgb_vec_for_projection;//当前用于投影的点云
+        m_updated_frame_index = img_for_projection->m_frame_idx;// 更新图像id
         // cout << ANSI_COLOR_MAGENTA_BOLD << "Refresh pts_for_projection size = " << m_pts_rgb_vec_for_projection->size()
         //      << " | " << m_rgb_pts_vec.size()
         //      << ", cost time = " << timer.toc() << ANSI_COLOR_RESET << endl;
@@ -352,7 +354,7 @@ int Global_map::append_points_to_global_map(pcl::PointCloud<T> &pc_in, double  a
         int add = 1; // 判断是否是重复点。当是重复点，add = 0
 
         // 计算grid索引
-        // 小于m_minimum_pts_size的点被当作同一个点
+        // 小于m_minimum_pts_size的点被当作同一个点(05  9:13)
         int grid_x = std::round(pc_in.points[pt_idx].x / m_minimum_pts_size);
         int grid_y = std::round(pc_in.points[pt_idx].y / m_minimum_pts_size);
         int grid_z = std::round(pc_in.points[pt_idx].z / m_minimum_pts_size);
@@ -530,8 +532,7 @@ void render_pts_in_voxels_mp(std::shared_ptr<Image_frame> &img_ptr, std::unorder
         cv::parallel_for_(cv::Range(0, numbers_of_voxels), [&](const cv::Range &r)
                           { thread_render_pts_in_voxel(r.start, r.end, img_ptr, &g_voxel_for_render, obs_time); });
     }
-    else // 作者自己实现的并行计算
-    {
+    else{// 作者自己实现的并行计算
         int num_of_threads = std::min(8*2, (int)numbers_of_voxels);
         // results.clear();
         results.resize(num_of_threads);

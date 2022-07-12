@@ -1279,11 +1279,12 @@ bool R3LIVE::vio_photometric(StatesGroup &state_in, Rgbmap_tracker &op_track, st
     return true;
 }
 
+//发布彩色点云线程
 void R3LIVE::service_pub_rgb_maps()
 {
-    int last_publish_map_idx = -3e8;
-    int sleep_time_aft_pub = 10;
-    int number_of_pts_per_topic = 1000;
+    int last_publish_map_idx = -3e8;//上一次发布的地图index
+    int sleep_time_aft_pub = 10;//发布睡眠时间
+    int number_of_pts_per_topic = 1000; //每个topic包含的点数
     if (number_of_pts_per_topic < 0)
     {
         return;
@@ -1294,22 +1295,27 @@ void R3LIVE::service_pub_rgb_maps()
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         pcl::PointCloud<pcl::PointXYZRGB> pc_rgb;
         sensor_msgs::PointCloud2 ros_pc_msg;
-        int pts_size = m_map_rgb_pts.m_rgb_pts_vec.size();
+        int pts_size = m_map_rgb_pts.m_rgb_pts_vec.size();//总共的地图点数目
         pc_rgb.resize(number_of_pts_per_topic);
         // for (int i = pts_size - 1; i > 0; i--)
-        int pub_idx_size = 0;
-        int cur_topic_idx = 0;
+        int pub_idx_size = 0; //一个topic中的点云计算
+        int cur_topic_idx = 0; //topic计数
+
+        //上一次发布的地图idx=上一次更新的图像idx，说明没有新的图像帧，则跳过
         if (last_publish_map_idx == m_map_rgb_pts.m_last_updated_frame_idx)
         {
             continue;
         }
-        last_publish_map_idx = m_map_rgb_pts.m_last_updated_frame_idx;
+        last_publish_map_idx = m_map_rgb_pts.m_last_updated_frame_idx;//更新idx
+        //遍历所有地图点
         for (int i = 0; i < pts_size; i++)
         {
+            //这个点没有被图像观测
             if (m_map_rgb_pts.m_rgb_pts_vec[i]->m_N_rgb < 1)
             {
                 continue;
             }
+            //从全局地图中拷贝出来
             pc_rgb.points[pub_idx_size].x = m_map_rgb_pts.m_rgb_pts_vec[i]->m_pos[0];
             pc_rgb.points[pub_idx_size].y = m_map_rgb_pts.m_rgb_pts_vec[i]->m_pos[1];
             pc_rgb.points[pub_idx_size].z = m_map_rgb_pts.m_rgb_pts_vec[i]->m_pos[2];
@@ -1318,18 +1324,22 @@ void R3LIVE::service_pub_rgb_maps()
             pc_rgb.points[pub_idx_size].b = m_map_rgb_pts.m_rgb_pts_vec[i]->m_rgb[0];
             // pc_rgb.points[i].intensity = m_map_rgb_pts.m_rgb_pts_vec[i]->m_obs_dis;
             pub_idx_size++;
+
+            //达到了一次发布的数量，转换成ros topic发布
             if (pub_idx_size == number_of_pts_per_topic)
             {
                 pub_idx_size = 0;
                 pcl::toROSMsg(pc_rgb, ros_pc_msg);
                 ros_pc_msg.header.frame_id = "world";
                 ros_pc_msg.header.stamp = ros::Time::now();
+                //黑没有这个publisher就创建一个
                 if (m_pub_rgb_render_pointcloud_ptr_vec[cur_topic_idx] == nullptr)
                 {
                     m_pub_rgb_render_pointcloud_ptr_vec[cur_topic_idx] =
                         std::make_shared<ros::Publisher>(m_ros_node_handle.advertise<sensor_msgs::PointCloud2>(
                             std::string("/RGB_map_").append(std::to_string(cur_topic_idx)), 100));
                 }
+                //发布点云
                 m_pub_rgb_render_pointcloud_ptr_vec[cur_topic_idx]->publish(ros_pc_msg);
                 std::this_thread::sleep_for(std::chrono::microseconds(sleep_time_aft_pub));
                 ros::spinOnce();
@@ -1337,6 +1347,7 @@ void R3LIVE::service_pub_rgb_maps()
             }
         }
 
+        //最后不满number_of_pts_topic的点云单独发出去
         pc_rgb.resize(pub_idx_size);
         pcl::toROSMsg(pc_rgb, ros_pc_msg);
         ros_pc_msg.header.frame_id = "world";
@@ -1351,10 +1362,11 @@ void R3LIVE::service_pub_rgb_maps()
         ros::spinOnce();
         m_pub_rgb_render_pointcloud_ptr_vec[cur_topic_idx]->publish(ros_pc_msg);
         cur_topic_idx++;
+        //如果topic太多了
         if (cur_topic_idx >= 45) // Maximum pointcloud topics = 45.
         {
-            number_of_pts_per_topic *= 1.5;
-            sleep_time_aft_pub *= 1.5;
+            number_of_pts_per_topic *= 1.5;//每个topic的点云数量*1.5
+            sleep_time_aft_pub *= 1.5;//睡眠时间*1.5
         }
     }
 }
